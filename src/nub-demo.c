@@ -12,7 +12,7 @@ static Layer *s_canvas_layer;
 #define DIST 6
 /* PARTS: 0.5 */
 
-uint8_t distmap[YRES][XRES];
+uint8_t distmap[YRES / 2 + 1][XRES / 2 + 1];
 
 /* fast isqrt32 algorithm from http://www.finesse.demon.co.uk/steven/sqrt.html */
 #define iter1(N) \
@@ -33,9 +33,9 @@ uint32_t isqrt (uint32_t n)
 }
 
 static void precalc() {
-  for (int y = 0; y < YRES; y++)
-    for (int x = 0; x < XRES; x++) {
-      uint32_t p = x * x + y * y;
+  for (int y = 0; y < YRES / 2 + 1; y++)
+    for (int x = 0; x < XRES / 2 + 1; x++) {
+      uint32_t p = x * x * 4 + y * y * 4;
       
       if (p == 0)
         p = 0xFF;
@@ -54,9 +54,18 @@ time_t last_s = 0;
 uint16_t last_ms = 0;
 
 uint32_t _tm = 0;
-//uint8_t linebuf[2][XRES * 2][3] = {{{0}}};
+uint32_t _frameno = 0;
 
-#define FPS 30
+#ifdef PBL_PLATFORM_APLITE
+#  define LINEBUF_COMPONENTS 1
+#else
+#  define LINEBUF_COMPONENTS 3
+#endif
+
+/* make it two larger, to avoid the checks for running over on either side */
+int16_t linebuf[2][XRES + 2][LINEBUF_COMPONENTS] = {{{0}}};
+
+#define FPS 60
 
 static void poke(void *p) {
   time_t s;
@@ -70,6 +79,12 @@ static void poke(void *p) {
   last_s = s;
   last_ms = ms;
   
+  _frameno++;
+  
+  if ((_frameno % 10) == 0) {
+    printf("%lu fps (%lu frames in %lu ms)", _frameno * 1000 / _tm, _frameno, _tm);
+  }
+  
   layer_mark_dirty(s_canvas_layer);
 }
 
@@ -81,6 +96,7 @@ static void update_proc(Layer *layer, GContext *ctx) {
   
 #ifdef PBL_PLATFORM_APLITE
   bm = graphics_capture_frame_buffer(ctx);
+  int stride = gbitmap_get_bytes_per_row(bm);
 #else
   bm = graphics_capture_frame_buffer_format(ctx, GBitmapFormat8Bit);
 #endif
@@ -93,10 +109,13 @@ static void update_proc(Layer *layer, GContext *ctx) {
   int32_t looky = YRES / 2 + YRES / 2 * sin_lookup(_tm / 3 * 15 * 0x10000 / 10000) * 8 / (10 * 0x10000);
   
   for (int y = 0; y < YRES; y++) {
-//    for (int x = 0; x < XRES; x++)
-//      linebuf[(y + 1) % 2][x][0] = linebuf[(y + 1) % 2][x][1] = linebuf[(y + 1) % 2][x][2] = 0;
+    for (int x = 0; x < XRES; x++)
+      for (int c = 0; c < LINEBUF_COMPONENTS; c++)
+        linebuf[(y + 1) % 2][x][c] = 0;
+#ifdef PBL_PLATFORM_APLITE
     for (int x = 0; x < XRES / 8; x++)
-      pxls[(y * XRES + x) / 8] = 0;
+      pxls[y * stride + x] = 0;
+#endif
       
     for (int x = 0; x < XRES; x++) {
       int32_t x_wrap;
@@ -109,7 +128,31 @@ static void update_proc(Layer *layer, GContext *ctx) {
       x_wrap -= XRES; if (x_wrap < 0) x_wrap = -x_wrap;
       y_wrap -= YRES; if (y_wrap < 0) y_wrap = -y_wrap;
       
-      uint8_t dist = distmap[y_wrap][x_wrap];
+      uint16_t _dist;
+      /*if (x_wrap & 1) {
+        if (y_wrap & 1) {
+          _dist = distmap[y_wrap / 2][x_wrap / 2];
+          _dist += distmap[y_wrap / 2 + 1][x_wrap / 2];
+          _dist += distmap[y_wrap / 2 + 1][x_wrap / 2 + 1];
+          _dist += distmap[y_wrap / 2][x_wrap / 2];
+          _dist += 2;
+          _dist >>= 2;
+        } else {
+          _dist = distmap[y_wrap / 2][x_wrap / 2];
+          _dist += distmap[y_wrap / 2][x_wrap / 2 + 1];
+          _dist += 1;
+          _dist >>= 1;
+        }
+      } else {
+        if (y_wrap & 1) {
+          _dist = distmap[y_wrap / 2][x_wrap / 2];
+          _dist += distmap[y_wrap / 2 + 1][x_wrap / 2];
+          _dist += 1;
+          _dist >>= 1;
+        } else
+          _dist = distmap[y_wrap / 2][x_wrap / 2];
+      }*/
+      uint8_t dist = distmap[y_wrap / 2][x_wrap / 2];
 //      uint8_t falloff = dist / 32;
 //      if (falloff < 1)
 //        falloff = 1;
@@ -126,8 +169,23 @@ static void update_proc(Layer *layer, GContext *ctx) {
       uint8_t coordy = ((256 - atanl) & 255) + shifty;
       
 #ifdef PBL_PLATFORM_APLITE
-      uint8_t pxl = (coordx ^ coordy) >> 7;
-      pxls[(y * XRES + x) / 8] |= pxl << (x % 8);
+      uint8_t pxl = coordx ^ coordy;
+      
+      int16_t want = pxl + linebuf[y & 1][x+1][0] / 16;
+      if (want < 0)
+        want = 0;
+      if (want > 0xFF)
+        want = 0xFF;
+      
+      int dither = want >= 0x80;
+      int err = want - (dither ? 0xFF : 0x00);
+      
+      linebuf[  y&1 ][x+2][0] += err * 7;
+      linebuf[!(y&1)][x  ][0] += err * 3;
+      linebuf[!(y&1)][x+1][0] += err * 5;
+      linebuf[!(y&1)][x+2][0] += err;
+      
+      pxls[y * stride + x / 8] |= dither << (x % 8);
 #else
       /* texture */
       uint8_t tex_r = (((coordx ^ coordy) * 0x101) >> 6) / falloff;
