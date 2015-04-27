@@ -3,7 +3,7 @@
 #define ASSERT(x) do { if (!(x)) { printf("assertion failed: " #x "\n"); *(volatile int *)0; } } while(0)
 
 static Window *s_main_window;
-static Layer *s_canvas_layer;
+static Layer *s_window_layer;
 
 #define XRES 144
 #define YRES 168
@@ -40,8 +40,10 @@ static void precalc() {
       if (p == 0)
         p = 0xFF;
       else {
-        p = TEXSZ * TEXSZ * DIST * DIST/ p;
+        p = TEXSZ * TEXSZ * DIST * DIST / p;
         p = isqrt(p);
+        if (p > 0xFF)
+          p = 0xFF;
       }
       
       distmap[y][x] = p; 
@@ -82,10 +84,10 @@ static void poke(void *p) {
   _frameno++;
   
   if ((_frameno % 10) == 0) {
-    printf("%lu fps (%lu frames in %lu ms)", _frameno * 1000 / _tm, _frameno, _tm);
+    printf("%lu fps (%lu frames in %lu ms; %lu ms/frame)", _frameno * 1000 / _tm, _frameno, _tm, _tm / _frameno);
   }
   
-  layer_mark_dirty(s_canvas_layer);
+  layer_mark_dirty(s_window_layer);
 }
 
 static void update_proc(Layer *layer, GContext *ctx) {
@@ -102,14 +104,14 @@ static void update_proc(Layer *layer, GContext *ctx) {
 #endif
   pxls = gbitmap_get_data(bm);
   
-  uint8_t shiftx = TEXSZ * _tm * 7 / 10000;
-  uint8_t shifty = TEXSZ * _tm * 3 / 10000;
+  uint8_t shiftx = TEXSZ * _tm * 7 / 40000;
+  uint8_t shifty = TEXSZ * _tm * 3 / 40000;
   
-  int32_t lookx = XRES / 2 + XRES / 2 * sin_lookup(_tm / 3 * 8 * 0x10000 / 10000) * 8 / (10 * 0x10000);
-  int32_t looky = YRES / 2 + YRES / 2 * sin_lookup(_tm / 3 * 15 * 0x10000 / 10000) * 8 / (10 * 0x10000);
+  int32_t lookx = XRES / 2 + XRES / 2 * sin_lookup(_tm * 7 / 2) * 8 / (10 * 0x10000);
+  int32_t looky = YRES / 2 + YRES / 2 * sin_lookup(_tm * 16 / 2) * 8 / (10 * 0x10000);
   
   for (int y = 0; y < YRES; y++) {
-    for (int x = 0; x < XRES; x++)
+    for (int x = 0; x < XRES + 2; x++)
       for (int c = 0; c < LINEBUF_COMPONENTS; c++)
         linebuf[(y + 1) % 2][x][c] = 0;
 #ifdef PBL_PLATFORM_APLITE
@@ -128,8 +130,11 @@ static void update_proc(Layer *layer, GContext *ctx) {
       x_wrap -= XRES; if (x_wrap < 0) x_wrap = -x_wrap;
       y_wrap -= YRES; if (y_wrap < 0) y_wrap = -y_wrap;
       
+#ifndef ACCURATE_DISTANCE
+      uint8_t dist = distmap[y_wrap / 2][x_wrap / 2];
+#else
       uint16_t _dist;
-      /*if (x_wrap & 1) {
+      if (x_wrap & 1) {
         if (y_wrap & 1) {
           _dist = distmap[y_wrap / 2][x_wrap / 2];
           _dist += distmap[y_wrap / 2 + 1][x_wrap / 2];
@@ -151,25 +156,24 @@ static void update_proc(Layer *layer, GContext *ctx) {
           _dist >>= 1;
         } else
           _dist = distmap[y_wrap / 2][x_wrap / 2];
-      }*/
-      uint8_t dist = distmap[y_wrap / 2][x_wrap / 2];
-//      uint8_t falloff = dist / 32;
-//      if (falloff < 1)
-//        falloff = 1;
-      uint8_t falloff = 1;
+      }
+      uint8_t dist = _dist;
+#endif
+
+      uint8_t falloff = dist / 48;
+      if (falloff < 1)
+        falloff = 1;
       
       uint8_t coordx = dist + shiftx;
       
       /* angle */
       int32_t atanl = atan2_lookup(x + lookx - XRES, y + looky - YRES);
-      atanl *= TEXSZ;
-      atanl /= 2; /* PARTS */
-      atanl /= 0x8000; /* or, as we call it, Pi */
+      atanl >>= 8; /* * TEXSZ / 2 / 0x8000 */
       
       uint8_t coordy = ((256 - atanl) & 255) + shifty;
       
 #ifdef PBL_PLATFORM_APLITE
-      uint8_t pxl = coordx ^ coordy;
+      uint8_t pxl = (coordx ^ coordy) / falloff;
       
       int16_t want = pxl + linebuf[y & 1][x+1][0] / 16;
       if (want < 0)
@@ -203,19 +207,16 @@ static void update_proc(Layer *layer, GContext *ctx) {
 }
 
 static void window_load(Window *window) {
-  Layer *window_layer = window_get_root_layer(window);
-  GRect window_bounds = layer_get_bounds(window_layer);
+  s_window_layer = window_get_root_layer(window);
+  GRect window_bounds = layer_get_bounds(s_window_layer);
   
   ASSERT(window_bounds.size.w == XRES);
   ASSERT(window_bounds.size.h == YRES);
 
-  s_canvas_layer = layer_create(window_bounds);
-  layer_set_update_proc(s_canvas_layer, update_proc);
-  layer_add_child(window_layer, s_canvas_layer);
+  layer_set_update_proc(s_window_layer, update_proc);
 }
 
 static void window_unload(Window *window) {
-  layer_destroy(s_canvas_layer);
 }
 
 /*********************************** App **************************************/
