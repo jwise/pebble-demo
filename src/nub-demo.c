@@ -90,6 +90,9 @@ static void poke(void *p) {
   layer_mark_dirty(s_window_layer);
 }
 
+#include "atan2-crap.h"
+
+
 static void update_proc(Layer *layer, GContext *ctx) {
   GBitmap *bm;
   uint8_t *pxls;
@@ -101,22 +104,34 @@ static void update_proc(Layer *layer, GContext *ctx) {
   int stride = gbitmap_get_bytes_per_row(bm);
 #else
   bm = graphics_capture_frame_buffer_format(ctx, GBitmapFormat8Bit);
+  const int stride = XRES * 3;
 #endif
   pxls = gbitmap_get_data(bm);
   
   uint8_t shiftx = TEXSZ * _tm * 7 / 40000;
   uint8_t shifty = TEXSZ * _tm * 3 / 40000;
   
-  int32_t lookx = XRES / 2 + XRES / 2 * sin_lookup(_tm * 7 / 2) * 8 / (10 * 0x10000);
-  int32_t looky = YRES / 2 + YRES / 2 * sin_lookup(_tm * 16 / 2) * 8 / (10 * 0x10000);
+  int32_t lookx = -XRES + XRES / 2 + XRES / 2 * sin_lookup(_tm * 7 / 2) * 8 / (10 * 0x10000);
+  int32_t looky = -YRES + YRES / 2 + YRES / 2 * sin_lookup(_tm * 16 / 2) * 8 / (10 * 0x10000);
   
-  for (int y = 0; y < YRES; y++) {
-    for (int x = 0; x < XRES + 2; x++)
-      for (int c = 0; c < LINEBUF_COMPONENTS; c++)
-        linebuf[(y + 1) % 2][x][c] = 0;
 #ifdef PBL_PLATFORM_APLITE
-    for (int x = 0; x < XRES / 8; x++)
-      pxls[y * stride + x] = 0;
+  memset(pxls, 0, YRES * stride);
+#endif
+  
+  uint8_t *linep = pxls;
+  for (int y = 0; y < YRES; y++) {
+    uint8_t *restrict pxlp = linep;
+    linep += stride;
+    
+    typedef int16_t fu_linebuf[XRES+2][LINEBUF_COMPONENTS];
+    typedef int16_t fu_pixel[LINEBUF_COMPONENTS];
+#ifdef PBL_PLATFORM_APLITE
+    fu_linebuf *restrict linebuf_0 = &(linebuf[y % 2]);
+    fu_linebuf *restrict linebuf_1 = &(linebuf[!(y % 2)]);
+
+    for (int x = 0; x < 2; x++)
+      for (int c = 0; c < LINEBUF_COMPONENTS; c++)
+        (*linebuf_1)[x][c] = 0;
 #endif
       
     for (int x = 0; x < XRES; x++) {
@@ -127,8 +142,8 @@ static void update_proc(Layer *layer, GContext *ctx) {
       x_wrap = x + lookx;
       y_wrap = y + looky;
       
-      x_wrap -= XRES; if (x_wrap < 0) x_wrap = -x_wrap;
-      y_wrap -= YRES; if (y_wrap < 0) y_wrap = -y_wrap;
+      if (x_wrap < 0) x_wrap = -x_wrap;
+      if (y_wrap < 0) y_wrap = -y_wrap;
       
 #ifndef ACCURATE_DISTANCE
       uint8_t dist = distmap[y_wrap / 2][x_wrap / 2];
@@ -160,22 +175,22 @@ static void update_proc(Layer *layer, GContext *ctx) {
       uint8_t dist = _dist;
 #endif
 
-      uint8_t falloff = dist / 48;
-      if (falloff < 1)
-        falloff = 1;
+      uint32_t falloff = 128 - dist;
+      if (falloff > 128)
+        falloff = 0;
       
       uint8_t coordx = dist + shiftx;
       
       /* angle */
-      int32_t atanl = atan2_lookup(x + lookx - XRES, y + looky - YRES);
+      int32_t atanl = fu_atan2_lookup(x + lookx, y + looky);
       atanl >>= 8; /* * TEXSZ / 2 / 0x8000 */
       
       uint8_t coordy = ((256 - atanl) & 255) + shifty;
       
 #ifdef PBL_PLATFORM_APLITE
-      uint8_t pxl = (coordx ^ coordy) / falloff;
+      uint32_t pxl = ((coordx ^ coordy) * falloff) >> 7;
       
-      int16_t want = pxl + linebuf[y & 1][x+1][0] / 16;
+      int32_t want = pxl + (*linebuf_0)[x+1][0] / 16;
       if (want < 0)
         want = 0;
       if (want > 0xFF)
@@ -184,21 +199,23 @@ static void update_proc(Layer *layer, GContext *ctx) {
       int dither = want >= 0x80;
       int err = want - (dither ? 0xFF : 0x00);
       
-      linebuf[  y&1 ][x+2][0] += err * 7;
-      linebuf[!(y&1)][x  ][0] += err * 3;
-      linebuf[!(y&1)][x+1][0] += err * 5;
-      linebuf[!(y&1)][x+2][0] += err;
-      
-      pxls[y * stride + x / 8] |= dither << (x % 8);
+      (*linebuf_0)[x+2][0] += err * 7;
+      (*linebuf_1)[x  ][0] += err * 3;
+      (*linebuf_1)[x+1][0] += err * 5;
+      (*linebuf_1)[x+2][0]  = err;
+
+      *pxlp |= dither << (x % 8);
+      if (x % 8 == 7)
+        pxlp++;
 #else
       /* texture */
       uint8_t tex_r = (((coordx ^ coordy) * 0x101) >> 6) / falloff;
       uint8_t tex_g = (((coordx ^ coordy) * 0x101) >> 7) / falloff;
       uint8_t tex_b = (((coordx ^ coordy) * 0x101) >> 8) / falloff;
       
-      pxls[y*XRES+x] = ((tex_r >> 6) << 4) |
-                       ((tex_g >> 6) << 2) |
-                       ((tex_b >> 6) << 0);
+      *pxlp = ((tex_r >> 6) << 4) |
+              ((tex_g >> 6) << 2) |
+              ((tex_b >> 6) << 0);
 #endif
     }
   }
