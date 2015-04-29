@@ -82,7 +82,7 @@ static void poke(void *p) {
   last_ms = ms;
   
   _frameno++;
-  
+
   if ((_frameno % 10) == 0) {
     printf("%lu fps (%lu frames in %lu ms; %lu ms/frame)", _frameno * 1000 / _tm, _frameno, _tm, _tm / _frameno);
   }
@@ -97,7 +97,7 @@ static void update_proc(Layer *layer, GContext *ctx) {
   GBitmap *bm;
   uint8_t *pxls;
   
-  app_timer_register(1000 / FPS, poke, NULL);
+  app_timer_register(1, poke, NULL);
   
 #ifdef PBL_PLATFORM_APLITE
   bm = graphics_capture_frame_buffer(ctx);
@@ -126,7 +126,7 @@ static void update_proc(Layer *layer, GContext *ctx) {
     typedef int16_t fu_linebuf[XRES+2][LINEBUF_COMPONENTS];
     typedef int16_t fu_pixel[LINEBUF_COMPONENTS];
 #ifdef PBL_PLATFORM_APLITE
-    fu_linebuf *restrict linebuf_0 = &(linebuf[y % 2]);
+    fu_pixel *errpxl = &(linebuf[y%2][1]);
     fu_linebuf *restrict linebuf_1 = &(linebuf[!(y % 2)]);
 
     for (int x = 0; x < 2; x++)
@@ -190,16 +190,17 @@ static void update_proc(Layer *layer, GContext *ctx) {
 #ifdef PBL_PLATFORM_APLITE
       uint32_t pxl = ((coordx ^ coordy) * falloff) >> 7;
       
-      int32_t want = pxl + (*linebuf_0)[x+1][0] / 16;
+      int32_t want = pxl + (*errpxl)[0] / 16;
       if (want < 0)
         want = 0;
       if (want > 0xFF)
         want = 0xFF;
       
       int dither = want >= 0x80;
-      int err = want - (dither ? 0xFF : 0x00);
+      unsigned int err = want - (dither ? 0xFF : 0x00);
       
-      (*linebuf_0)[x+2][0] += err * 7;
+      errpxl++;
+      (*errpxl)        [0] += err * 7;
       (*linebuf_1)[x  ][0] += err * 3;
       (*linebuf_1)[x+1][0] += err * 5;
       (*linebuf_1)[x+2][0]  = err;
