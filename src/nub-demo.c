@@ -91,7 +91,7 @@ static void poke(void *p) {
 }
 
 /* atan2 lookup table algorithm from
- * http://www.coranac.com/documents/arctangent/.  Nas a handful of the scale
+ * http://www.coranac.com/documents/arctangent/.  Has a handful of the scale
  * coefficients baked in already at compile time.  */
 
 #define BRAD_PI 0x80 /* Carefully chosen to make the texture size work out. */
