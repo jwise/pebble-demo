@@ -90,8 +90,49 @@ static void poke(void *p) {
   layer_mark_dirty(s_window_layer);
 }
 
-#include "atan2-crap.h"
+/* atan2 lookup table algorithm from
+ * http://www.coranac.com/documents/arctangent/.  Nominally compatible with
+ * atan2_lookup, but inlineable.  Also, has a handful of the scale
+ * coefficients baked in already at compile time.  */
 
+#define BRAD_PI 0x8000 /* note: not the 0x4000 from that page */
+#define LUTSZ 256
+
+#define OCTANTIFY(_x, _y, _o)   do {                          \
+  int _t; _o= 0;                                              \
+  if(_y<  0)  {            _x= -_x;   _y= -_y; _o += 4; }     \
+  if(_x<= 0)  { _t= _x;    _x=  _y;   _y= -_t; _o += 2; }     \
+  if(_x<=_y)  { _t= _y-_x; _x= _x+_y; _y=  _t; _o += 1; }     \
+} while(0);
+
+const int32_t atan2_lut[] = {
+#include "atan2lut.h"
+};
+
+static inline int32_t fastatan2(int32_t y, int32_t x) {
+  if (y == 0) return x >= 0 ? 0 : BRAD_PI;
+  
+  int32_t octphi, dphi;
+  
+  /* First, enter an octant-normal form: although the output could
+   * reasonably be in the range [0, 360°), everything is actually mirrored
+   * around octants up to 45°.  So subtract out until we hit that, and then
+   * write down the offset for what octant we actually started in.
+   */
+  OCTANTIFY(x, y, octphi);
+  octphi *= BRAD_PI / 4;
+  
+  /* Now that we're in octant-normal form, we have the constraint that y < x
+   * -- since the output, post-normalization, is on the range [0, 45°).  We
+   * use a precomputed lookup table from y/x -- which, since y < x, is on
+   * the range [0, 1) -- to an output that's on the range [0, 45°), or as we
+   * might otherwise call it, [0, BRAD_PI/4).  We scale the input to the LUT
+   * by the LUT size, which should be a power of two for efficiency.
+   */
+  int32_t lutphi = atan2_lut[y * LUTSZ / x];
+  
+  return octphi + lutphi;
+}
 
 static void update_proc(Layer *layer, GContext *ctx) {
   GBitmap *bm;
@@ -104,7 +145,7 @@ static void update_proc(Layer *layer, GContext *ctx) {
   int stride = gbitmap_get_bytes_per_row(bm);
 #else
   bm = graphics_capture_frame_buffer_format(ctx, GBitmapFormat8Bit);
-  const int stride = XRES * 3;
+  const int stride = XRES;
 #endif
   pxls = gbitmap_get_data(bm);
   
@@ -125,14 +166,13 @@ static void update_proc(Layer *layer, GContext *ctx) {
     
     typedef int16_t fu_linebuf[XRES+2][LINEBUF_COMPONENTS];
     typedef int16_t fu_pixel[LINEBUF_COMPONENTS];
-#ifdef PBL_PLATFORM_APLITE
+
     fu_pixel *errpxl = &(linebuf[y%2][1]);
     fu_linebuf *restrict linebuf_1 = &(linebuf[!(y % 2)]);
 
     for (int x = 0; x < 2; x++)
       for (int c = 0; c < LINEBUF_COMPONENTS; c++)
         (*linebuf_1)[x][c] = 0;
-#endif
       
     for (int x = 0; x < XRES; x++) {
       int32_t x_wrap;
@@ -182,7 +222,7 @@ static void update_proc(Layer *layer, GContext *ctx) {
       uint8_t coordx = dist + shiftx;
       
       /* angle */
-      int32_t atanl = fu_atan2_lookup(x + lookx, y + looky);
+      int32_t atanl = fastatan2(x + lookx, y + looky);
       atanl >>= 8; /* * TEXSZ / 2 / 0x8000 */
       
       uint8_t coordy = ((256 - atanl) & 255) + shifty;
@@ -205,13 +245,33 @@ static void update_proc(Layer *layer, GContext *ctx) {
         pxlp++;
 #else
       /* texture */
-      uint8_t tex_r = (((coordx ^ coordy) * 0x101) >> 6) / falloff;
-      uint8_t tex_g = (((coordx ^ coordy) * 0x101) >> 7) / falloff;
-      uint8_t tex_b = (((coordx ^ coordy) * 0x101) >> 8) / falloff;
+      uint32_t pxl[3];
+      int32_t dither[3];
       
-      *pxlp = ((tex_r >> 6) << 4) |
-              ((tex_g >> 6) << 2) |
-              ((tex_b >> 6) << 0);
+      pxl[0] = (((coordx ^ coordy) * 0x101) >> 6) & 0xFF;
+      pxl[1] = (((coordx ^ coordy) * 0x101) >> 7) & 0xFF;
+      pxl[2] = (((coordx ^ coordy) * 0x101) >> 8) & 0xFF;
+      
+      for (int c = 0; c < 3; c++) {
+        pxl[c] *= falloff;
+        pxl[c] >>= 7;
+        
+        int32_t want = pxl[c] + errpxl[0][c] / 16;
+        dither[c] = want >> 6;
+        if (dither[c] > 3) dither[c] = 3;
+        if (dither[c] < 0) dither[c] = 0;
+        unsigned int err = want - dither[c] * 0x55;
+        
+        errpxl[1]        [c] += err * 7;
+        (*linebuf_1)[x  ][c] += err * 3;
+        (*linebuf_1)[x+1][c] += err * 5;
+        (*linebuf_1)[x+2][c]  = err;
+      }
+      errpxl++;
+      
+      *(pxlp++) = (dither[0] << 4) |
+                  (dither[1] << 2) |
+                  (dither[2] << 0);
 #endif
     }
   }
