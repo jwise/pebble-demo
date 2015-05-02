@@ -91,11 +91,10 @@ static void poke(void *p) {
 }
 
 /* atan2 lookup table algorithm from
- * http://www.coranac.com/documents/arctangent/.  Nominally compatible with
- * atan2_lookup, but inlineable.  Also, has a handful of the scale
+ * http://www.coranac.com/documents/arctangent/.  Nas a handful of the scale
  * coefficients baked in already at compile time.  */
 
-#define BRAD_PI 0x8000 /* note: not the 0x4000 from that page */
+#define BRAD_PI 0x80 /* Carefully chosen to make the texture size work out. */
 #define LUTSZ 256
 
 #define OCTANTIFY(_x, _y, _o)   do {                          \
@@ -112,13 +111,12 @@ const int32_t atan2_lut[] = {
 static inline int32_t fastatan2(int32_t y, int32_t x) {
   if (y == 0) return x >= 0 ? 0 : BRAD_PI;
   
-  int32_t octphi, dphi;
-  
   /* First, enter an octant-normal form: although the output could
    * reasonably be in the range [0, 360°), everything is actually mirrored
    * around octants up to 45°.  So subtract out until we hit that, and then
    * write down the offset for what octant we actually started in.
    */
+  int32_t octphi;
   OCTANTIFY(x, y, octphi);
   octphi *= BRAD_PI / 4;
   
@@ -223,7 +221,7 @@ static void update_proc(Layer *layer, GContext *ctx) {
       
       /* angle */
       int32_t atanl = fastatan2(x + lookx, y + looky);
-      atanl >>= 8; /* * TEXSZ / 2 / 0x8000 */
+      atanl >>= 0; /* * TEXSZ / 2 / BRAD_PI */
       
       uint8_t coordy = ((256 - atanl) & 255) + shifty;
       
