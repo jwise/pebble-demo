@@ -191,11 +191,6 @@ static void update_proc(Layer *layer, GContext *ctx) {
       uint32_t pxl = ((coordx ^ coordy) * falloff) >> 7;
       
       int32_t want = pxl + (*errpxl)[0] / 16;
-      if (want < 0)
-        want = 0;
-      if (want > 0xFF)
-        want = 0xFF;
-      
       int dither = want >= 0x80;
       unsigned int err = want - (dither ? 0xFF : 0x00);
       
