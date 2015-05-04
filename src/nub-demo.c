@@ -162,15 +162,14 @@ static void update_proc(Layer *layer, GContext *ctx) {
     uint8_t *restrict pxlp = linep;
     linep += stride;
     
-    typedef int16_t fu_linebuf[XRES+2][LINEBUF_COMPONENTS];
     typedef int16_t fu_pixel[LINEBUF_COMPONENTS];
 
-    fu_pixel *errpxl = &(linebuf[y%2][1]);
-    fu_linebuf *restrict linebuf_1 = &(linebuf[!(y % 2)]);
+    fu_pixel *restrict errpxl = &(linebuf[y%2][1]);
+    fu_pixel *restrict nxtpxl = &(linebuf[!(y % 2)][0]);
 
     for (int x = 0; x < 2; x++)
       for (int c = 0; c < LINEBUF_COMPONENTS; c++)
-        (*linebuf_1)[x][c] = 0;
+        nxtpxl[x][c] = 0;
       
     for (int x = 0; x < XRES; x++) {
       int32_t x_wrap;
@@ -232,11 +231,12 @@ static void update_proc(Layer *layer, GContext *ctx) {
       int dither = want >= 0x80;
       unsigned int err = want - (dither ? 0xFF : 0x00);
       
+      errpxl[1][0] += err * 7;
+      nxtpxl[0][0] += err * 3;
+      nxtpxl[1][0] += err * 5;
+      nxtpxl[2][0]  = err;
       errpxl++;
-      (*errpxl)        [0] += err * 7;
-      (*linebuf_1)[x  ][0] += err * 3;
-      (*linebuf_1)[x+1][0] += err * 5;
-      (*linebuf_1)[x+2][0]  = err;
+      nxtpxl++;
 
       *pxlp |= dither << (x % 8);
       if (x % 8 == 7)
@@ -260,12 +260,13 @@ static void update_proc(Layer *layer, GContext *ctx) {
         if (dither[c] < 0) dither[c] = 0;
         unsigned int err = want - dither[c] * 0x55;
         
-        errpxl[1]        [c] += err * 7;
-        (*linebuf_1)[x  ][c] += err * 3;
-        (*linebuf_1)[x+1][c] += err * 5;
-        (*linebuf_1)[x+2][c]  = err;
+        errpxl[1][c] += err * 7;
+        nxtpxl[0][c] += err * 3;
+        nxtpxl[1][c] += err * 5;
+        nxtpxl[2][c]  = err;
       }
       errpxl++;
+      nxtpxl++;
       
       *(pxlp++) = (dither[0] << 4) |
                   (dither[1] << 2) |
