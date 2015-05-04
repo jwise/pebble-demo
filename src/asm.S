@@ -34,8 +34,7 @@ dither_basalt:
 
 .macro DITHER c
 	mul r3, r3, r14              @ r3 U.7 = falloff(pxl)
-	ldrh r4, [r1, #0+\c*2]       @ r4 U.4 = errpxl[0]
-	sxth r4, r4                  @ r4 S.4
+	ldrsh r4, [r1, #0+\c*2]      @ r4 S.4 = errpxl[0]
 	adds r3, r3, r4, lsl #3      @ r3 S.7 = want = falloff(pxl) + errpxl
 	ite lt                       @ want < 0?
 .if \c == 0
