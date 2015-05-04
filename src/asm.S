@@ -36,9 +36,8 @@ dither_basalt:
 	mul r3, r3, r14              @ r3 U.7 = falloff(pxl)
 	ldrh r4, [r1, #0+\c*2]       @ r4 U.4 = errpxl[0]
 	sxth r4, r4                  @ r4 S.4
-	add r3, r3, r4, lsl #3       @ r3 S.7 = want = falloff(pxl) + errpxl
-	cmp r3, #0                   @ want < 0?
-	ite lt
+	adds r3, r3, r4, lsl #3      @ r3 S.7 = want = falloff(pxl) + errpxl
+	ite lt                       @ want < 0?
 .if \c == 0
 	movlt r9, #0                 @   T: r9 U2 = dither = 0
 	usatge r9, #2, r3, asr #13   @   F: r9 U2 = dither = sat(want >> (7 + 6))
