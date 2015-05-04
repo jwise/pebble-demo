@@ -56,6 +56,7 @@ time_t last_s = 0;
 uint16_t last_ms = 0;
 
 uint32_t _tm = 0;
+uint32_t _tm20 = 0;
 uint32_t _frameno = 0;
 
 #ifdef PBL_PLATFORM_APLITE
@@ -67,7 +68,7 @@ uint32_t _frameno = 0;
 /* make it two larger, to avoid the checks for running over on either side */
 int16_t linebuf[2][XRES + 2][LINEBUF_COMPONENTS] = {{{0}}};
 #ifdef PBL_PLATFORM_BASALT
-uint8_t falloffbuf[XRES];
+uint8_t falloffbuf[XRES+2];
 #endif
 
 #define FPS 60
@@ -85,9 +86,14 @@ static void poke(void *p) {
   last_ms = ms;
   
   _frameno++;
-
-  if ((_frameno % 10) == 0) {
-    printf("%lu fps (%lu frames in %lu ms; %lu ms/frame)", _frameno * 1000 / _tm, _frameno, _tm, _tm / _frameno);
+  if (_frameno == 20) {
+    _tm20 = _tm;
+  }
+  
+  if ((_frameno % 10) == 0 && _frameno > 20) {
+    uint32_t frames = _frameno - 20;
+    uint32_t frtm = _tm - _tm20;
+    printf("%lu fps (%lu frames in %lu ms; %lu ms/frame)", frames * 1000 / frtm, frames, frtm, frtm / frames);
   }
   
   layer_mark_dirty(s_window_layer);
