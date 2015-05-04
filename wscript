@@ -11,13 +11,13 @@ top = '.'
 out = 'build'
 
 def options(ctx):
-    ctx.load('pebble_sdk')
+    ctx.load('pebble_sdk gas')
 
 def configure(ctx):
-    ctx.load('pebble_sdk')
+    ctx.load('pebble_sdk gas')
 
 def build(ctx):
-    ctx.load('pebble_sdk')
+    ctx.load('pebble_sdk gas')
 
     build_worker = os.path.exists('worker_src')
     binaries = []
@@ -25,9 +25,8 @@ def build(ctx):
     for p in ctx.env.TARGET_PLATFORMS:
         ctx.set_env(ctx.all_envs[p])
         ctx.set_group(ctx.env.PLATFORM_NAME)
-        ctx.env.append_value('CFLAGS',['-O3'])
         app_elf='{}/pebble-app.elf'.format(ctx.env.BUILD_DIR)
-        ctx.pbl_program(source=ctx.path.ant_glob('src/**/*.c'),
+        ctx.pbl_program(source=ctx.path.ant_glob('src/**/*.c src/**/*.S.o'),
         target=app_elf)
 
         if build_worker:

@@ -66,6 +66,9 @@ uint32_t _frameno = 0;
 
 /* make it two larger, to avoid the checks for running over on either side */
 int16_t linebuf[2][XRES + 2][LINEBUF_COMPONENTS] = {{{0}}};
+#ifdef PBL_PLATFORM_BASALT
+uint8_t falloffbuf[XRES];
+#endif
 
 #define FPS 60
 
@@ -132,6 +135,7 @@ static inline int32_t fastatan2(int32_t y, int32_t x) {
   return octphi + lutphi;
 }
 
+
 static void update_proc(Layer *layer, GContext *ctx) {
   GBitmap *bm;
   uint8_t *pxls;
@@ -160,7 +164,6 @@ static void update_proc(Layer *layer, GContext *ctx) {
   uint8_t *linep = pxls;
   for (int y = 0; y < YRES; y++) {
     uint8_t *restrict pxlp = linep;
-    linep += stride;
     
     typedef int16_t fu_pixel[LINEBUF_COMPONENTS];
 
@@ -242,37 +245,16 @@ static void update_proc(Layer *layer, GContext *ctx) {
       if (x % 8 == 7)
         pxlp++;
 #else
-      /* texture */
-      uint32_t pxl[3];
-      int32_t dither[3];
-      
-      pxl[0] = (((coordx ^ coordy) * 0x101) >> 6) & 0xFF;
-      pxl[1] = (((coordx ^ coordy) * 0x101) >> 7) & 0xFF;
-      pxl[2] = (((coordx ^ coordy) * 0x101) >> 8) & 0xFF;
-      
-      for (int c = 0; c < 3; c++) {
-        pxl[c] *= falloff;
-        pxl[c] >>= 7;
-        
-        int32_t want = pxl[c] + errpxl[0][c] / 16;
-        dither[c] = want >> 6;
-        if (dither[c] > 3) dither[c] = 3;
-        if (dither[c] < 0) dither[c] = 0;
-        unsigned int err = want - dither[c] * 0x55;
-        
-        errpxl[1][c] += err * 7;
-        nxtpxl[0][c] += err * 3;
-        nxtpxl[1][c] += err * 5;
-        nxtpxl[2][c]  = err;
-      }
-      errpxl++;
-      nxtpxl++;
-      
-      *(pxlp++) = (dither[0] << 4) |
-                  (dither[1] << 2) |
-                  (dither[2] << 0);
+      *(pxlp++) = coordx ^ coordy;
+      falloffbuf[x] = falloff;
 #endif
     }
+    
+#ifdef PBL_PLATFORM_BASALT
+    extern void dither_basalt(uint8_t *linep, uint16_t *errpxl, uint16_t *nxtpxl, uint8_t *falloff);
+    dither_basalt(linep, (uint16_t *)errpxl[0], (uint16_t *)nxtpxl[0], falloffbuf);
+#endif
+    linep += stride;
   }
   
   graphics_release_frame_buffer(ctx, bm);
