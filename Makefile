@@ -1,5 +1,5 @@
 run_qemu: build
-	pebble install --qemu localhost:12344 --logs
+	pebble install --qemu localhost:12344
 
 run: build
 	pebble install --phone 192.168.1.109 --logs

@@ -12,7 +12,13 @@ static Layer *s_window_layer;
 #define DIST 6
 /* PARTS: 0.5 */
 
-uint8_t distmap[YRES / 2 + 1][XRES / 2 + 1];
+#ifdef PBL_PLATFORM_APLITE
+# define DIST_SCALE 2
+#else
+# define DIST_SCALE 1
+#endif
+
+uint8_t distmap[YRES / DIST_SCALE + 1][XRES / DIST_SCALE + 1];
 
 /* fast isqrt32 algorithm from http://www.finesse.demon.co.uk/steven/sqrt.html */
 #define iter1(N) \
@@ -33,9 +39,9 @@ uint32_t isqrt (uint32_t n)
 }
 
 static void precalc() {
-  for (int y = 0; y < YRES / 2 + 1; y++)
-    for (int x = 0; x < XRES / 2 + 1; x++) {
-      uint32_t p = x * x * 4 + y * y * 4;
+  for (int y = 0; y < YRES / DIST_SCALE + 1; y++)
+    for (int x = 0; x < XRES / DIST_SCALE + 1; x++) {
+      uint32_t p = x * x * DIST_SCALE * DIST_SCALE + y * y * DIST_SCALE * DIST_SCALE;
       
       if (p == 0)
         p = 0xFF;
@@ -179,7 +185,8 @@ static void update_proc(Layer *layer, GContext *ctx) {
     for (int x = 0; x < 2; x++)
       for (int c = 0; c < LINEBUF_COMPONENTS; c++)
         nxtpxl[x][c] = 0;
-      
+
+#ifdef PBL_PLATFORM_APLITE
     for (int x = 0; x < XRES; x++) {
       int32_t x_wrap;
       int32_t y_wrap;
@@ -233,7 +240,6 @@ static void update_proc(Layer *layer, GContext *ctx) {
       
       uint8_t coordy = ((256 - atanl) & 255) + shifty;
       
-#ifdef PBL_PLATFORM_APLITE
       uint32_t pxl = ((coordx ^ coordy) * falloff) >> 7;
       
       int32_t want = pxl + (*errpxl)[0] / 16;
@@ -250,15 +256,11 @@ static void update_proc(Layer *layer, GContext *ctx) {
       *pxlp |= dither << (x % 8);
       if (x % 8 == 7)
         pxlp++;
-#else
-      *(pxlp++) = coordx ^ coordy;
-      falloffbuf[x] = falloff;
-#endif
     }
-    
-#ifdef PBL_PLATFORM_BASALT
-    extern void dither_basalt(uint8_t *linep, uint16_t *errpxl, uint16_t *nxtpxl, uint8_t *falloff);
-    dither_basalt(linep, (uint16_t *)errpxl[0], (uint16_t *)nxtpxl[0], falloffbuf);
+#else
+    extern void dither_basalt(uint8_t *linep, uint16_t *errpxl, uint16_t *nxtpxl, int32_t lookx, int32_t ylooky, uint32_t shiftx, uint32_t shifty, uint8_t *distmap, const int32_t *atan2_lut);
+    int32_t ylooky = y+looky;
+    dither_basalt(linep, (uint16_t *)errpxl[0], (uint16_t *)nxtpxl[0], lookx, ylooky, shiftx, shifty, &distmap[0][0], atan2_lut);
 #endif
     linep += stride;
   }
