@@ -73,9 +73,6 @@ uint32_t _frameno = 0;
 
 /* make it two larger, to avoid the checks for running over on either side */
 int16_t linebuf[2][XRES + 2][LINEBUF_COMPONENTS] = {{{0}}};
-#ifdef PBL_PLATFORM_BASALT
-uint8_t falloffbuf[XRES+2];
-#endif
 
 #define FPS 60
 
@@ -175,8 +172,6 @@ static void update_proc(Layer *layer, GContext *ctx) {
   
   uint8_t *linep = pxls;
   for (int y = 0; y < YRES; y++) {
-    uint8_t *restrict pxlp = linep;
-    
     typedef int16_t fu_pixel[LINEBUF_COMPONENTS];
 
     fu_pixel *restrict errpxl = &(linebuf[y%2][1]);
@@ -187,80 +182,11 @@ static void update_proc(Layer *layer, GContext *ctx) {
         nxtpxl[x][c] = 0;
 
 #ifdef PBL_PLATFORM_APLITE
-    for (int x = 0; x < XRES; x++) {
-      int32_t x_wrap;
-      int32_t y_wrap;
-      
-      /* distance */
-      x_wrap = x + lookx;
-      y_wrap = y + looky;
-      
-      if (x_wrap < 0) x_wrap = -x_wrap;
-      if (y_wrap < 0) y_wrap = -y_wrap;
-      
-#ifndef ACCURATE_DISTANCE
-      uint8_t dist = distmap[y_wrap / 2][x_wrap / 2];
-#else
-      uint16_t _dist;
-      if (x_wrap & 1) {
-        if (y_wrap & 1) {
-          _dist = distmap[y_wrap / 2][x_wrap / 2];
-          _dist += distmap[y_wrap / 2 + 1][x_wrap / 2];
-          _dist += distmap[y_wrap / 2 + 1][x_wrap / 2 + 1];
-          _dist += distmap[y_wrap / 2][x_wrap / 2];
-          _dist += 2;
-          _dist >>= 2;
-        } else {
-          _dist = distmap[y_wrap / 2][x_wrap / 2];
-          _dist += distmap[y_wrap / 2][x_wrap / 2 + 1];
-          _dist += 1;
-          _dist >>= 1;
-        }
-      } else {
-        if (y_wrap & 1) {
-          _dist = distmap[y_wrap / 2][x_wrap / 2];
-          _dist += distmap[y_wrap / 2 + 1][x_wrap / 2];
-          _dist += 1;
-          _dist >>= 1;
-        } else
-          _dist = distmap[y_wrap / 2][x_wrap / 2];
-      }
-      uint8_t dist = _dist;
-#endif
-
-      uint32_t falloff = 128 - dist;
-      if (falloff > 128)
-        falloff = 0;
-      
-      uint8_t coordx = dist + shiftx;
-      
-      /* angle */
-      int32_t atanl = fastatan2(x + lookx, y + looky);
-      atanl >>= 0; /* * TEXSZ / 2 / BRAD_PI */
-      
-      uint8_t coordy = ((256 - atanl) & 255) + shifty;
-      
-      uint32_t pxl = ((coordx ^ coordy) * falloff) >> 7;
-      
-      int32_t want = pxl + (*errpxl)[0] / 16;
-      int dither = want >= 0x80;
-      unsigned int err = want - (dither ? 0xFF : 0x00);
-      
-      errpxl[1][0] += err * 7;
-      nxtpxl[0][0] += err * 3;
-      nxtpxl[1][0] += err * 5;
-      nxtpxl[2][0]  = err;
-      errpxl++;
-      nxtpxl++;
-
-      *pxlp |= dither << (x % 8);
-      if (x % 8 == 7)
-        pxlp++;
-    }
+    extern void dither_aplite(uint8_t *linep, uint16_t *errpxl, uint16_t *nxtpxl, int32_t lookx, int32_t ylooky, uint32_t shiftx, uint32_t shifty, uint8_t *distmap, const int32_t *atan2_lut);
+    dither_aplite(linep, (uint16_t *)errpxl[0], (uint16_t *)nxtpxl[0], lookx, y+looky, shiftx, shifty, &distmap[0][0], atan2_lut);
 #else
     extern void dither_basalt(uint8_t *linep, uint16_t *errpxl, uint16_t *nxtpxl, int32_t lookx, int32_t ylooky, uint32_t shiftx, uint32_t shifty, uint8_t *distmap, const int32_t *atan2_lut);
-    int32_t ylooky = y+looky;
-    dither_basalt(linep, (uint16_t *)errpxl[0], (uint16_t *)nxtpxl[0], lookx, ylooky, shiftx, shifty, &distmap[0][0], atan2_lut);
+    dither_basalt(linep, (uint16_t *)errpxl[0], (uint16_t *)nxtpxl[0], lookx, y+looky, shiftx, shifty, &distmap[0][0], atan2_lut);
 #endif
     linep += stride;
   }
