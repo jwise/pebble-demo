@@ -4,8 +4,9 @@
 #define ASSERT(x) do { if (!(x)) { printf("assertion failed: " #x "\n"); *(volatile int *)0; } } while(0)
 
 extern struct effect effect_tunnel;
+extern struct effect effect_roto;
 
-static struct effect *effect = &effect_tunnel;
+static struct effect *effect = &effect_roto;
 
 static Window *s_main_window;
 static Layer *s_window_layer;

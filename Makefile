@@ -7,5 +7,5 @@ run: build
 %.S.o: %.S
 	$(shell dirname `which pebble`)/../arm-cs-tools/bin/arm-none-eabi-gcc -mthumb -mcpu=cortex-m3 -c -o $@ $<
 	
-build: src/asm.S.o src/nub-demo.c src/tunnel.c src/effect.h
+build: src/asm.S.o src/nub-demo.c src/tunnel.c src/effect.h src/roto.c
 	pebble build
