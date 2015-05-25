@@ -108,7 +108,7 @@
 @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
 
 .align 3
-@ dither_basalt:
+@ tunnel_basalt:
 @   Calculates one line at a time, in 3-component color.
 @
 @   r0: framebuffer (bytep)
@@ -120,8 +120,8 @@
 @   sp+12: shifty
 @   sp+16: distmap
 @   sp+20: atan2_lut
-.globl dither_basalt
-dither_basalt:
+.globl tunnel_basalt
+tunnel_basalt:
 	push {r4-r12,r14} @ stack: 10 words = 40 bytes
 
 	mov r9, r0	    @ r9 = framebuffer
@@ -234,7 +234,7 @@ dither_basalt:
 	bx lr
 
 .align 3
-@ dither_aplite:
+@ tunnel_aplite:
 @   Calculates one line at a time, in 1-bit color.
 @
 @   r0: framebuffer (bytep)
@@ -246,8 +246,8 @@ dither_basalt:
 @   sp+12: shifty
 @   sp+16: distmap
 @   sp+20: atan2_lut
-.globl dither_aplite
-dither_aplite:
+.globl tunnel_aplite
+tunnel_aplite:
 	push {r4-r12,r14} @ stack: 10 words = 40 bytes
 
 	mov r9, r0	    @ r9 = framebuffer
