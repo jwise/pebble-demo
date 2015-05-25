@@ -98,7 +98,8 @@ static void update(uint8_t *pxls, int stride) {
     extern void roto_aplite(uint32_t xp0y, uint32_t yp0y, uint8_t *linep, uint32_t dxpdx, uint32_t dypdx, uint16_t *errpxl, uint16_t *nxtpxl);
     roto_aplite(xp, yp, linep, f2f3, f2f4, (uint16_t *)errpxl[0], (uint16_t *)nxtpxl[0]);
 #else
-    (void)*(errpxl[0]);
+    extern void roto_basalt(uint32_t xp0y, uint32_t yp0y, uint8_t *linep, uint32_t dxpdx, uint32_t dypdx, uint16_t *errpxl, uint16_t *nxtpxl);
+    roto_basalt(xp, yp, linep, f2f3, f2f4, (uint16_t *)errpxl[0], (uint16_t *)nxtpxl[0]);
 #endif
 
     xp += -f2f4;

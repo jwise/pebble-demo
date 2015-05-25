@@ -444,3 +444,115 @@ roto_aplite:
 	bne 1b
 	pop {r4-r12,r14}
 	bx lr
+
+
+.align 3
+@ roto_basalt:
+@   Calculates one line at a time, in 6-bit color.
+@
+@   r0: x'(0, y), U16.16
+@   r1: y'(0, y), U16.16
+@   r2: framebuffer (bytep)
+@   r3: dx'/dx, U16.16
+@   sp+4: dy'/dx, U16.16
+@   sp+8: linebuf errpxl
+@   sp+12: linebuf nxtpxl
+.globl roto_basalt
+roto_basalt:
+	push {r4-r12,r14} @ stack: 10 words = 40 bytes
+
+	mov r9, r2	            @ r9 = framebuffer
+	mov r10, r3                 @ r10 = dx'/dx
+	@ Sigh.  We have to use r11 as a temp.
+	ldr r12, [sp, #ERRPXL]      @ r12 = linebuf errpxl
+	ldr r14, [sp, #NXTPXL]      @ r14 = linebuf nxtpxl
+
+	mov r8, #0                  @ r8 = reps
+	
+1:	
+	@ live: r0: xp
+	@       r1: yp
+	@       r3: pixel value
+	@       r8: x
+	@       r9: framebuffer
+	@       r10: dxdx
+	@       r12: linebuf errpxl
+	@       r14: linebuf nexpxl
+
+	@ Wow, calculating the pixel value is a lot easier for the
+	@ rotozoomer!
+
+	eor r3, r0, r1               @ r3 = pixel = xp ^ yp
+	uxtb r3, r3, ror #16         @ r3 U8
+
+	@ Now we do the actual dither.
+
+@ DITHER_ROTO:
+@   input: r12: errpxl
+@          r14: nxtpxl
+@          r3: pixel value
+@  output: appropriately placed bit in r2
+@ clobber: r3, r4, r5, r6, r7
+@
+@    args: #1: component
+
+.macro DITHER_ROTO c
+	mov r3, r3, lsl #7
+	ldrsh r4, [r12, #0+\c*2]     @ r4 S.4 = errpxl[0]
+	adds r3, r3, r4, lsl #3      @ r3 S.4 = want = falloff(pxl) + errpxl
+	ite lt                       @ want < 0?
+.if \c == 0
+	movlt r2, #0                 @   T: r8 U2 = dither = 0
+	usatge r2, #2, r3, asr #13   @   F: r8 U2 = dither = sat(want >> (4 + 6))
+	mov r5, #0x55
+	mul r5, r5, r2               @ r5 U8 = dither * 0x55
+.else
+	movlt r4, #0                 @   T: r4 U2 = dither = 0
+	usatge r4, #2, r3, asr #13   @   F: r4 U2 = dither = sat(want >> (4 + 6))
+	orr r2, r2, r4, lsl #\c*2
+	mov r5, #0x55
+	mul r5, r5, r4               @ r5 U8 = dither * 0x55
+.endif
+	rsb r3, r5, r3, asr #7       @ r3 U8 = err = want - dither * 0x55
+	
+	ldrh r4, [r12, #6+\c*2]      @ r4 = errpxl[1]
+	ldrh r5, [r14, #0+\c*2]      @ r5 = nxtpxl[0]
+	ldrh r6, [r14, #6+\c*2]      @ r6 = nxtpxl[1]
+	mov r7, #7
+	mla r4, r3, r7, r4           @ r4 = errpxl[1] + err * 7
+	mov r7, #3
+	mla r5, r3, r7, r5           @ r5 = nxtpxl[0] + err * 3
+	mov r7, #5
+	mla r6, r3, r7, r6           @ r6 = nxtpxl[1] + err * 5
+	strh r4, [r12, #6+\c*2]
+	strh r5, [r14, #0+\c*2]
+	strh r6, [r14, #6+\c*2]
+	strh r3, [r14, #12+\c*2]     @ nxtpxl[2] = err
+.endm
+
+	orr r11, r3, r3, lsl #8      @ extend pixel to replicate
+	ubfx r3, r11, #8, #8
+	DITHER_ROTO 0
+	
+	ubfx r3, r11, #7, #8
+	DITHER_ROTO 1
+	
+	ubfx r3, r11, #6, #8
+	DITHER_ROTO 2
+
+	strb r2, [r9, r8]
+	
+	add r12, r12, #6             @ increment line buffers
+	add r14, r14, #6
+	
+	@ the actual work here: increment by dxdx and dydx!
+	add r0, r0, r10
+	ldr r11, [sp, #DYDX] @ Sigh.
+	add r1, r1, r11
+	
+	add r8, r8, #1
+	cmp r8, #XRES
+	bne 1b
+	pop {r4-r12,r14}
+	bx lr
+
